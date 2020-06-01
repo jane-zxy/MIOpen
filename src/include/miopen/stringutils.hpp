@@ -117,7 +117,7 @@ inline std::vector<std::string> SplitSpaceSeparated(const std::string& in,
             std::string s2;
             if(ss >> s2)
             {
-                rv.push_back(s + ' ' + s2);
+                rv.push_back(s + ' ' + s2); // Exactly one space is important.
                 continue;
             }
             MIOPEN_THROW("Error parsing string: '" + in + '\'');

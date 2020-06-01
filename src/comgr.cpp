@@ -123,7 +123,7 @@ static void AddOcl20CompilerOptions(OptionList& list)
 /// (or even can be harmful) for building via comgr layer.
 ///
 /// \todo Produce proper options in, er, proper places, and get rid of this.
-static void RemoveOclSuperfluousOptions(OptionList& list)
+static void RemoveOclOptionsUnwanted(OptionList& list)
 {
     list.erase(remove_if(list.begin(),
                          list.end(),
@@ -131,30 +131,62 @@ static void RemoveOclSuperfluousOptions(OptionList& list)
                list.end());
 }
 
-static bool IsHipLinkerOption(const std::string& option)
+static auto GetOptionsNoSplit()
 {
-    return miopen::StartsWith(option, "-L") || miopen::StartsWith(option, "-Wl,") ||
-           option == "-ldl" || option == "-lm";
+    static const std::vector<std::string> rv = {
+        "-isystem", "-L", "-Wl,-rpath", "-Xclang", "-hip-path", "-mllvm", "-x"};
+    return rv;
 }
 
-static void RemoveHipSuperfluousOptions(OptionList& list)
+namespace hip {
+
+static bool IsLinkerOption(const std::string& option)
+{
+    return miopen::StartsWith(option, "-L") || miopen::StartsWith(option, "-Wl,") ||
+           option == "-ldl" || option == "-lm" || option == "--hip-link";
+}
+
+static void RemoveCommonOptionsUnwanted(OptionList& list)
 {
     list.erase(remove_if(list.begin(),
                          list.end(),
-                         [&](const auto& option) {
-                             return miopen::StartsWith(option, "-mcpu=") || (option == "-hc") ||
-                                    (!miopen::IsEnabled(MIOPEN_DEBUG_COMGR_HIP_BUILD_FATBIN{}) &&
-                                     IsHipLinkerOption(option));
+                         [&](const auto& option) { // clang-format off
+                             return miopen::StartsWith(option, "-mcpu=")
+                                || (option == "-hc")
+                                || (option == "-x hip")
+                                || (option == "--hip-link")
+                                || miopen::StartsWith(option, "-mllvm -amdgpu-early-inline-all")
+                                || miopen::StartsWith(option, "-mllvm -amdgpu-function-calls")
+                                || miopen::StartsWith(option, "--hip-device-lib-path="); // clang-format on
                          }),
                list.end());
 }
 
-static auto GetHipOptionsNoSplit()
+static void RemoveCompilerOptionsUnwanted(OptionList& list)
 {
-    static const std::vector<std::string> rv = {
-        "-isystem", "-L", "-Wl,-rpath", "-Xclang", "-hip-path"};
-    return rv;
+    RemoveCommonOptionsUnwanted(list);
+    list.erase(remove_if(list.begin(),
+                         list.end(),
+                         [&](const auto& option) { // clang-format off
+                             return (!miopen::IsEnabled(MIOPEN_DEBUG_COMGR_HIP_BUILD_FATBIN{})
+                                    && (IsLinkerOption(option))); // clang-format on
+                         }),
+               list.end());
 }
+
+static void RemoveLinkOptionsUnwanted(OptionList& list)
+{
+    RemoveCommonOptionsUnwanted(list);
+    list.erase(remove_if(list.begin(),
+                         list.end(),
+                         [&](const auto& option) { // clang-format off
+                             return miopen::StartsWith(option, "-D")
+                                || miopen::StartsWith(option, "-isystem"); // clang-format on
+                         }),
+               list.end());
+}
+
+} // namespace hip
 
 /// \todo Get list of supported isa names from comgr and select.
 static std::string GetIsaName(const std::string& device)
@@ -165,8 +197,6 @@ static std::string GetIsaName(const std::string& device)
                                        : "";
     return {"amdgcn-amd-amdhsa--" + device + ecc_suffix};
 }
-
-/// \todo Handle "-cl-fp32-correctly-rounded-divide-sqrt".
 
 } // namespace lc
 #undef OCL_EARLY_INLINE
@@ -548,46 +578,43 @@ void BuildHip(const std::string& name,
         const Dataset exe;
         if(miopen::IsEnabled(MIOPEN_DEBUG_COMGR_HIP_BUILD_FATBIN{}))
         {
-            auto raw = std::string("--amdgpu-target=gfx906 -hip-path /opt/rocm/hip") // FIXME
-                       + " " + options                                               //
-                       + " " + GetDebugCompilerOptionsInsert()                       //
-                       + " " + MIOPEN_STRINGIZE(HIP_COMPILER_FLAGS);                 // FIXME
+            auto raw = options //
+                       + " " + GetDebugCompilerOptionsInsert() //
+                       + " " + MIOPEN_STRINGIZE(HIP_COMPILER_FLAGS);
             auto optCompile =
-                miopen::SplitSpaceSeparated(raw, compiler::lc::GetHipOptionsNoSplit());
-            compiler::lc::RemoveHipSuperfluousOptions(optCompile);
+                miopen::SplitSpaceSeparated(raw, compiler::lc::GetOptionsNoSplit());
+            compiler::lc::hip::RemoveCompilerOptionsUnwanted(optCompile);
             action.SetOptionList(optCompile);
-
             action.Do(AMD_COMGR_ACTION_COMPILE_SOURCE_TO_FATBIN, inputs, exe);
         }
         else
         {
-            auto raw = options + " "                                                       //
-                       + "-Xclang -isystem -Xclang /opt/rocm/hcc/lib/clang/10.0.0/include" // FIXME
-                       + " " + GetDebugCompilerOptionsInsert()                             //
-                       + " " + MIOPEN_STRINGIZE(HIP_COMPILER_FLAGS);                       // FIXME
+            auto raw =  std::string(" -O3 ") // Without this, fails in lld.
+                + options //
+                + " " + GetDebugCompilerOptionsInsert() //
+                + " " + MIOPEN_STRINGIZE(HIP_COMPILER_FLAGS);
             auto optCompile =
-                miopen::SplitSpaceSeparated(raw, compiler::lc::GetHipOptionsNoSplit());
+                miopen::SplitSpaceSeparated(raw, compiler::lc::GetOptionsNoSplit());
+            auto optLink = optCompile;
+            compiler::lc::hip::RemoveCompilerOptionsUnwanted(optCompile);
+            compiler::lc::hip::RemoveLinkOptionsUnwanted(optLink);
 
-            // FIXME Removes also linker options
-            compiler::lc::RemoveHipSuperfluousOptions(optCompile);
             action.SetOptionList(optCompile);
-
             const Dataset compiledBc;
             action.Do(AMD_COMGR_ACTION_COMPILE_SOURCE_TO_BC, inputs, compiledBc);
 
-            OptionList optLink;
-            optLink.push_back("wavefrontsize64");
-            optLink.push_back("daz_opt");     // Assume that it's ok to flush denormals to zero.
-            optLink.push_back("finite_only"); // No need to handle INF correcly.
-            optLink.push_back("unsafe_math"); // Prefer speed over correctness for FP math.
+            OptionList addDevLibs;
+            addDevLibs.push_back("wavefrontsize64");
+            addDevLibs.push_back("daz_opt");     // Assume that it's ok to flush denormals to zero.
+            addDevLibs.push_back("finite_only"); // No need to handle INF correcly.
+            addDevLibs.push_back("unsafe_math"); // Prefer speed over correctness for FP math.
+            action.SetOptionList(addDevLibs);
+            const Dataset withDevLibs;
+            action.Do(AMD_COMGR_ACTION_ADD_DEVICE_LIBRARIES, compiledBc, withDevLibs);
 
             action.SetOptionList(optLink);
-            const Dataset addedDevLibs;
-            action.Do(AMD_COMGR_ACTION_ADD_DEVICE_LIBRARIES, compiledBc, addedDevLibs);
             const Dataset linkedBc;
-            action.Do(AMD_COMGR_ACTION_LINK_BC_TO_BC, addedDevLibs, linkedBc);
-
-            action.SetOptionList(optCompile);
+            action.Do(AMD_COMGR_ACTION_LINK_BC_TO_BC, withDevLibs, linkedBc);
             const Dataset relocatable;
             action.Do(AMD_COMGR_ACTION_CODEGEN_BC_TO_RELOCATABLE, linkedBc, relocatable);
 
@@ -627,7 +654,7 @@ void BuildOcl(const std::string& name,
         action.SetLogging(true);
 
         auto optCompile = miopen::SplitSpaceSeparated(options);
-        compiler::lc::RemoveOclSuperfluousOptions(optCompile);
+        compiler::lc::RemoveOclOptionsUnwanted(optCompile);
         compiler::lc::AddOcl20CompilerOptions(optCompile);
         action.SetOptionList(optCompile);
 
