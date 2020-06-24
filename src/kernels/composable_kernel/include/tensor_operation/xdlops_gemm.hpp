@@ -902,11 +902,15 @@ struct XdlopsGemm_t
 
         static_if<!IsKReduction()>{}([&](auto) {
 
+            // mod offset to avoid out-of-bound load
+            const index_t a_off = laneId % MPerXdlops;
+            const index_t b_off = laneId % NPerXdlops;
+
             // load into registers
             for(index_t k = 0; k < K; ++k)
             {
-                a[k] = p_a_wave[k * M + laneId];
-                b[k] = p_b_wave[k * N + laneId];
+                a[k] = p_a_wave[k * M + a_off];
+                b[k] = p_b_wave[k * N + b_off];
             }
 
             // get pointer of registers
@@ -916,14 +920,13 @@ struct XdlopsGemm_t
 #if WORKAROUND_SWDEV_229564
 #pragma unroll
 #endif
-            for(index_t k = 0; k < K; ++k)
+            for(index_t k = 0; k < K * nxdlops; ++k)
             {
-                for(index_t i = 0; i < nxdlops; ++i)
-                    mfma_type.run(Number<MPerXdlops>{},
-                                  Number<NPerXdlops>{},
-                                  &pa[(k * nxdlops + i) * mfma_type.k_base],
-                                  &pb[(k * nxdlops + i) * mfma_type.k_base],
-                                  p_c_thread);
+                mfma_type.run(Number<MPerXdlops>{},
+                              Number<NPerXdlops>{},
+                              &pa[(k * nxdlops) * mfma_type.k_base],
+                              &pb[(k * nxdlops) * mfma_type.k_base],
+                              p_c_thread);
             }
 
         }).Else([&](auto) {
@@ -934,11 +937,15 @@ struct XdlopsGemm_t
             const index_t blk_id = laneId / mfma_type.num_threads_blk;
             const index_t blk_td = laneId % mfma_type.num_threads_blk;
 
+            // mod offset to avoid out-of-bound load
+            const index_t a_off = blk_td % MPerXdlops;
+            const index_t b_off = blk_td % NPerXdlops;
+
             // load into registers
             for(index_t k = 0; k < K; k += mfma_type.num_input_blks)
             {
-                a[k] = p_a_wave[(k + blk_id) * M + blk_td];
-                b[k] = p_b_wave[(k + blk_id) * N + blk_td];
+                a[k] = p_a_wave[(k + blk_id) * M + a_off];
+                b[k] = p_b_wave[(k + blk_id) * N + b_off];
             }
 
             // get pointer of registers
@@ -948,14 +955,13 @@ struct XdlopsGemm_t
 #if WORKAROUND_SWDEV_229564
 #pragma unroll
 #endif
-            for(index_t k = 0; k < K; k += mfma_type.num_input_blks)
+            for(index_t k = 0; k < K * nxdlops; k += mfma_type.num_input_blks)
             {
-                for(index_t i = 0; i < nxdlops; ++i)
-                    mfma_type.run(Number<MPerXdlops>{},
-                                  Number<NPerXdlops>{},
-                                  &pa[(k * nxdlops + i) * mfma_type.k_base],
-                                  &pb[(k * nxdlops + i) * mfma_type.k_base],
-                                  p_c_thread);
+                mfma_type.run(Number<MPerXdlops>{},
+                              Number<NPerXdlops>{},
+                              &pa[(k * nxdlops) * mfma_type.k_base],
+                              &pb[(k * nxdlops) * mfma_type.k_base],
+                              p_c_thread);
             }
 
         });
