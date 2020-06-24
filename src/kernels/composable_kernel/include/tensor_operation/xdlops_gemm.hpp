@@ -924,8 +924,8 @@ struct XdlopsGemm_t
             {
                 mfma_type.run(Number<MPerXdlops>{},
                               Number<NPerXdlops>{},
-                              &pa[(k * nxdlops) * mfma_type.k_base],
-                              &pb[(k * nxdlops) * mfma_type.k_base],
+                              &pa[k * mfma_type.k_base],
+                              &pb[k * mfma_type.k_base],
                               p_c_thread);
             }
 
@@ -959,8 +959,8 @@ struct XdlopsGemm_t
             {
                 mfma_type.run(Number<MPerXdlops>{},
                               Number<NPerXdlops>{},
-                              &pa[(k * nxdlops) * mfma_type.k_base],
-                              &pb[(k * nxdlops) * mfma_type.k_base],
+                              &pa[k * mfma_type.k_base],
+                              &pb[k * mfma_type.k_base],
                               p_c_thread);
             }
 
