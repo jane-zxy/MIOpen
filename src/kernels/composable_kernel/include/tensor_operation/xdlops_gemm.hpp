@@ -898,6 +898,9 @@ struct XdlopsGemm_t
         static_assert(sizeof(FloatA) % (sizeof(data_type) * mfma_type.k_base) == 0,
                       "wrong! FloatA is consistent with mfma");
 
+        static_assert(!IsKReduction() || K % mfma_type.num_input_blks == 0,
+                      "K cannot divided by mfma_type.num_input_blks!");
+
         constexpr index_t nxdlops = sizeof(FloatA) / (sizeof(data_type) * mfma_type.k_base);
 
         static_if<!IsKReduction()>{}([&](auto) {
@@ -917,7 +920,7 @@ struct XdlopsGemm_t
             auto pa = reinterpret_cast<const data_type*>(&a);
             auto pb = reinterpret_cast<const data_type*>(&b);
 
-#if WORKAROUND_SWDEV_229564
+#if CK_WORKAROUND_SWDEV_229564
 #pragma unroll
 #endif
             for(index_t k = 0; k < K * nxdlops; ++k)
@@ -930,9 +933,6 @@ struct XdlopsGemm_t
             }
 
         }).Else([&](auto) {
-
-            static_assert(K % mfma_type.num_input_blks == 0,
-                          "K cannot divided by mfma_type.num_input_blks!");
 
             const index_t blk_id = laneId / mfma_type.num_threads_blk;
             const index_t blk_td = laneId % mfma_type.num_threads_blk;
@@ -952,7 +952,7 @@ struct XdlopsGemm_t
             auto pa = reinterpret_cast<const data_type*>(&a);
             auto pb = reinterpret_cast<const data_type*>(&b);
 
-#if WORKAROUND_SWDEV_229564
+#if CK_WORKAROUND_SWDEV_229564
 #pragma unroll
 #endif
             for(index_t k = 0; k < K * nxdlops; k += mfma_type.num_input_blks)
