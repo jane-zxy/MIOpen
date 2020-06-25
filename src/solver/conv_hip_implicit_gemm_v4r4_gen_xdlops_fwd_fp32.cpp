@@ -363,7 +363,6 @@ bool PerformanceImplicitGemmV4R4GenXdlopsFwdFp32::SetNextValue()
 void PerformanceImplicitGemmV4R4GenXdlopsFwdFp32::EuristicInit(const ConvolutionContext& ctx)
 {
     PerformanceImplicitGemmV4R4GenXdlopsFwdFp32 tmp;
-
     tmp = {128, 128, 16, 64, 64, use_spare_set};
 
     if(!tmp.IsValid(ctx))

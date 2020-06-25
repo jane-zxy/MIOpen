@@ -74,8 +74,6 @@
 #define CK_WORKAROUND_SWDEV_231101 1
 #endif
 
-#define WORKAROUND_SWDEV_229564 1
-
 namespace ck {
 
 enum AddressSpace
