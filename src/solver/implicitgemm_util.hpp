@@ -526,20 +526,20 @@ static inline bool IsValidBlockwiseGemmXdlops(const ConvolutionContext& ctx,
         return false;
 
     // check M and N
+    std::vector<std::tuple<int, int>> validWaveGemmSize = {std::make_tuple(128, 128),
+                                                           std::make_tuple(128, 64),
+                                                           std::make_tuple(64, 128),
+                                                           std::make_tuple(64, 64),
+                                                           std::make_tuple(64, 32),
+                                                           std::make_tuple(64, 16),
+                                                           std::make_tuple(32, 64),
+                                                           std::make_tuple(32, 32),
+                                                           std::make_tuple(16, 64),
+                                                           std::make_tuple(16, 16),
+                                                           std::make_tuple(8, 64),
+                                                           std::make_tuple(4, 64)};
+
     bool IsValidWaveGemm = false;
-    std::vector<std::tuple<int, int>> validWaveGemmSize;
-    validWaveGemmSize.push_back(std::make_tuple(128, 128));
-    validWaveGemmSize.push_back(std::make_tuple(128, 64));
-    validWaveGemmSize.push_back(std::make_tuple(64, 128));
-    validWaveGemmSize.push_back(std::make_tuple(64, 64));
-    validWaveGemmSize.push_back(std::make_tuple(64, 32));
-    validWaveGemmSize.push_back(std::make_tuple(64, 16));
-    validWaveGemmSize.push_back(std::make_tuple(32, 64));
-    validWaveGemmSize.push_back(std::make_tuple(32, 32));
-    validWaveGemmSize.push_back(std::make_tuple(16, 64));
-    validWaveGemmSize.push_back(std::make_tuple(16, 16));
-    validWaveGemmSize.push_back(std::make_tuple(8, 64));
-    validWaveGemmSize.push_back(std::make_tuple(4, 64));
 
     for(auto& it : validWaveGemmSize)
     {
