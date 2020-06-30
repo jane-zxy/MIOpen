@@ -30,6 +30,7 @@
 #include <miopen/generic_search.hpp>
 #include <miopen/hip_build_utils.hpp>
 #include "implicitgemm_util.hpp"
+#define CK_EXTEND_IMAGE_SIZE_PAD_W_V2 0
 
 namespace miopen {
 namespace solver {
@@ -437,7 +438,22 @@ PerformanceImplicitGemmForwardV4R4Xdlops::CalculateGemmBBlockCopyPerformancePara
         // calculate threadwise copy size
         auto data_per_thread_copy =
             std::max(1, (GemmKPerBlock * GemmNPerBlock * GemmKPack) / block_size);
+#if CK_EXTEND_IMAGE_SIZE_PAD_W_V2
+        if((data_per_thread_copy>=8)&&(data_per_thread_copy%8==0)&&(GemmNPerBlock>=8)&&(GemmNPerBlock%8==0)){
+            SrcDataPerRead_GemmN = 8;
+        }else{
+            // SrcDataPerRead_GemmN bounded by size of threadwise copy
+            SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, data_per_thread_copy);
+            // SrcDataPerRead also bounded by GemmKPack;
+            SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, GemmNPerBlock);
+        }
+#else
+        // SrcDataPerRead_GemmN bounded by size of threadwise copy
+        SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, data_per_thread_copy);
 
+        // SrcDataPerRead also bounded by GemmKPack;
+        SrcDataPerRead_GemmN = gcd(SrcDataPerRead_GemmN, GemmNPerBlock);
+#endif
         // make sure a thread can do a full vector load, at the cost that some threads
         // may not do threadwise copy at all
         data_per_thread_copy = lcm(data_per_thread_copy, SrcDataPerRead_GemmN);
@@ -753,7 +769,11 @@ ConvHipImplicitGemmForwardV4R4Xdlops::CalculateGemmSize(const ConvolutionContext
     const auto k  = ConvolutionContextInterpreter::GetOutputChannelK(ctx);
     const auto c  = ConvolutionContextInterpreter::GetInputChannelC(ctx);
     const auto ho = ConvolutionContextInterpreter::GetOutputHeightHo(ctx);
+#if CK_EXTEND_IMAGE_SIZE_PAD_W_V2
+    const auto wo = ConvolutionContextInterpreter::GetOutputWidthWo(ctx)+1;
+#else
     const auto wo = ConvolutionContextInterpreter::GetOutputWidthWo(ctx);
+#endif
     const auto y  = ConvolutionContextInterpreter::GetFilterHeightY(ctx);
     const auto x  = ConvolutionContextInterpreter::GetFilterWidthX(ctx);
 

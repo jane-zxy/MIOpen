@@ -60,8 +60,11 @@ struct GridwiseConvolutionForwardImplicitGemm_v4r4_xdlops_nchw_kcyx_nkhw
 
         constexpr index_t K  = out_n_k_ho_wo_global_desc.GetLengths()[1];
         constexpr index_t Ho = out_n_k_ho_wo_global_desc.GetLengths()[2];
+#if CK_EXTEND_IMAGE_SIZE_PAD_W_V2
+        constexpr index_t Wo = out_n_k_ho_wo_global_desc.GetLengths()[3]+1;
+#else
         constexpr index_t Wo = out_n_k_ho_wo_global_desc.GetLengths()[3];
-
+#endif
         constexpr index_t Y = wei_k_cpergroup_y_x_global_desc.GetLengths()[2];
         constexpr index_t X = wei_k_cpergroup_y_x_global_desc.GetLengths()[3];
 
@@ -91,18 +94,45 @@ struct GridwiseConvolutionForwardImplicitGemm_v4r4_xdlops_nchw_kcyx_nkhw
                       "wrong! cannot divide work evenly among block");
 
         // construct tensor descriptor for group convolution
+#if CK_EXTEND_IMAGE_SIZE_PAD_W_V2        
+        constexpr auto in_g_n_cpergroup_hi_wi_global_desc = make_native_tensor_descriptor(
+            Sequence<G, N, CPerGroup, Hi, Wi+1>{},
+            Sequence<CPerGroup * Hi * Wi, C * Hi * Wi, Hi * Wi, Wi, 1>{});
+#else
         constexpr auto in_g_n_cpergroup_hi_wi_global_desc = make_native_tensor_descriptor(
             Sequence<G, N, CPerGroup, Hi, Wi>{},
             Sequence<CPerGroup * Hi * Wi, C * Hi * Wi, Hi * Wi, Wi, 1>{});
-
+#endif
         constexpr auto wei_g_kpergroup_cpergroup_y_x_global_desc =
             make_native_tensor_descriptor_packed(Sequence<G, KPerGroup, CPerGroup, Y, X>{});
-
+#if CK_EXTEND_IMAGE_SIZE_PAD_W_V2        
+        constexpr auto out_gnkhw_desc_native =
+            make_native_tensor_descriptor(Sequence<G, N, KPerGroup, Hi, Wi>{},
+                                        Sequence<KPerGroup * Hi * Wi, K * Hi * Wi, Hi * Wi, Wi, 1>{});
+        constexpr auto out_g_n_kpergroup_ho_wo_global_desc = transform_tensor_descriptor(
+            out_gnkhw_desc_native,
+            make_tuple(PassThrough<G>{},
+                       PassThrough<N>{},
+                       PassThrough<KPerGroup>{},
+                       Pad<Sequence<Hi, Wi>, InLeftPads, Sequence<0, 1>>{}),//Transforms,
+            make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3, 4>{}),
+            make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3, 4>{}));
+#else
         constexpr auto out_g_n_kpergroup_ho_wo_global_desc = make_native_tensor_descriptor(
             Sequence<G, N, KPerGroup, Ho, Wo>{},
             Sequence<KPerGroup * Ho * Wo, K * Ho * Wo, Ho * Wo, Wo, 1>{});
-
+#endif
         // input tensor
+#if CK_EXTEND_IMAGE_SIZE_PAD_W_V2
+        constexpr auto in_g_n_cpergroup_hip_wip_global_desc = transform_tensor_descriptor(
+            in_g_n_cpergroup_hi_wi_global_desc,
+            make_tuple(PassThrough<G>{},
+                       PassThrough<N>{},
+                       PassThrough<CPerGroup>{},
+                       Pad<Sequence<Hi, (Wi+1)>, InLeftPads, InRightPads>{}),
+            make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3, 4>{}),
+            make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3, 4>{}));
+#else        
         constexpr auto in_g_n_cpergroup_hip_wip_global_desc = transform_tensor_descriptor(
             in_g_n_cpergroup_hi_wi_global_desc,
             make_tuple(PassThrough<G>{},
@@ -111,7 +141,7 @@ struct GridwiseConvolutionForwardImplicitGemm_v4r4_xdlops_nchw_kcyx_nkhw
                        Pad<Sequence<Hi, Wi>, InLeftPads, InRightPads>{}),
             make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3, 4>{}),
             make_tuple(Sequence<0>{}, Sequence<1>{}, Sequence<2>{}, Sequence<3, 4>{}));
-
+#endif
         constexpr index_t Hip = in_g_n_cpergroup_hip_wip_global_desc.GetLengths()[3];
         constexpr index_t Wip = in_g_n_cpergroup_hip_wip_global_desc.GetLengths()[4];
 

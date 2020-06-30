@@ -26,4 +26,6 @@
 #include "amd_xdlops.hpp"
 #endif
 
+#define CK_EXTEND_IMAGE_SIZE_PAD_W_V2 0
+
 #endif
